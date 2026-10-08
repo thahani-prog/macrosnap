@@ -1,9 +1,9 @@
-import json
+import smtplib
+from email.mime.text import MIMEText
 
 import streamlit as st
 from google import genai
 from google.genai import types
-from twilio.rest import Client as TwilioClient
 
 from prompts import SUMMARY_REQUEST_PROMPT, SYSTEM_PROMPT, WELCOME_MESSAGE_TEMPLATE
 
@@ -11,10 +11,8 @@ MODEL_NAME = "gemini-3.5-flash"  # change if your key doesn't have this model
 st.set_page_config(page_title="MacroSnap", page_icon="🥗")
 
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-TWILIO_ACCOUNT_SID = st.secrets["TWILIO_ACCOUNT_SID"]
-TWILIO_AUTH_TOKEN = st.secrets["TWILIO_AUTH_TOKEN"]
-TWILIO_WHATSAPP_FROM = st.secrets["TWILIO_WHATSAPP_FROM"]
-TWILIO_CONTENT_SID = st.secrets["TWILIO_CONTENT_SID"]
+GMAIL_ADDRESS = st.secrets["GMAIL_ADDRESS"]
+GMAIL_APP_PASSWORD = st.secrets["GMAIL_APP_PASSWORD"]
 
 
 @st.cache_resource
@@ -22,13 +20,7 @@ def get_gemini_client():
     return genai.Client(api_key=GEMINI_API_KEY)
 
 
-@st.cache_resource
-def get_twilio_client():
-    return TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-
-
 gemini_client = get_gemini_client()
-twilio_client = get_twilio_client()
 
 
 def render_message(message):
@@ -51,26 +43,20 @@ def ask_gemini(parts):
         return f"Sorry, something went wrong: {error}"
 
 
-def clean_whatsapp_text(text):
-    if not text:
-        return "No nutrition summary available."
-    text = " ".join(text.split())  # collapse whitespace/newlines
-    return text[:1500] + "..." if len(text) > 1500 else text
-
-
-def send_whatsapp(to_number, user_name, summary):
-    # Content template expects {{1}} = name, {{2}} = summary.
+def send_email(to_address, user_name, summary):
     try:
-        content_variables = json.dumps(
-            {"1": user_name, "2": clean_whatsapp_text(summary)}, ensure_ascii=False
+        message = MIMEText(
+            f"Hi {user_name},\n\nHere's your MacroSnap summary:\n\n{summary}",
+            "plain",
+            "utf-8",
         )
-        message = twilio_client.messages.create(
-            from_=TWILIO_WHATSAPP_FROM,
-            to=f"whatsapp:{to_number}",
-            content_sid=TWILIO_CONTENT_SID,
-            content_variables=content_variables,
-        )
-        return True, message.sid
+        message["Subject"] = "Your MacroSnap meal summary"
+        message["From"] = GMAIL_ADDRESS
+        message["To"] = to_address
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+            server.send_message(message)
+        return True, "sent"
     except Exception as error:
         return False, str(error)
 
@@ -78,21 +64,21 @@ def send_whatsapp(to_number, user_name, summary):
 # ---------- Onboarding ----------
 if "onboarded" not in st.session_state:
     st.title("🥗 MacroSnap")
-    st.caption("Snap it. Track it. Text yourself the results.")
+    st.caption("Snap it. Track it. Email yourself the results.")
     with st.form("onboarding_form"):
         name = st.text_input("Your name")
-        whatsapp_number = st.text_input(
-            "WhatsApp number (with country code)",
-            placeholder="+91XXXXXXXXXX",
-            help="This is the number MacroSnap will text your summary to.",
+        email_address = st.text_input(
+            "Your email address",
+            placeholder="you@example.com",
+            help="This is where MacroSnap will email your summary.",
         )
         submitted = st.form_submit_button("Let's go 🚀")
         if submitted:
-            if not name.strip() or not whatsapp_number.strip():
-                st.warning("Please fill in both your name and WhatsApp number.")
+            if not name.strip() or not email_address.strip():
+                st.warning("Please fill in both your name and email address.")
             else:
                 st.session_state.name = name.strip()
-                st.session_state.whatsapp_number = whatsapp_number.strip()
+                st.session_state.email_address = email_address.strip()
                 st.session_state.chat = gemini_client.chats.create(
                     model=MODEL_NAME,
                     config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
@@ -110,19 +96,19 @@ with header_col:
 
 with button_col:
     send_disabled = len(st.session_state.messages) <= 2
-    if st.button("📤 Send to WhatsApp", disabled=send_disabled, use_container_width=True):
+    if st.button("📤 Send to Email", disabled=send_disabled, use_container_width=True):
         with st.spinner("Summarizing your day..."):
             summary = ask_gemini([SUMMARY_REQUEST_PROMPT])
-            success, info = send_whatsapp(
-                st.session_state.whatsapp_number, st.session_state.name, summary
+            success, info = send_email(
+                st.session_state.email_address, st.session_state.name, summary
             )
         if success:
-            st.success("Sent! Check your WhatsApp 📲")
+            st.success("Sent! Check your inbox 📧")
         else:
             st.error(f"Couldn't send that: {info}")
 
 st.caption(
-    f"Logged in as {st.session_state.name} - updates go to {st.session_state.whatsapp_number}"
+    f"Logged in as {st.session_state.name} - updates go to {st.session_state.email_address}"
 )
 
 if not st.session_state.messages:
@@ -160,3 +146,7 @@ if user_input:
     with st.spinner("Crunching the numbers..."):
         answer = ask_gemini(parts)
     add_message("assistant", "text", answer)
+
+
+
+
