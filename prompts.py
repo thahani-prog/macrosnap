@@ -17,13 +17,13 @@ WELCOME_MESSAGE_TEMPLATE = (
     "Snap a photo of your meal, or just tell me what you're eating, and I'll "
     "break down the calories and macros in seconds. No food diary, no "
     "guesswork.\n\n"
-    "When you're done, hit \"Send details to WhatsApp\" below and I'll text "
-    "your full summary straight to your phone."
+    "When you're done, hit \"Send to Email\" below and I'll email "
+    "your full summary straight to your inbox."
 )
 
 SUMMARY_REQUEST_PROMPT = (
     "Summarize every meal we've discussed in this conversation into one "
-    "WhatsApp-friendly message: list each item with its estimated calories, "
+    "short email-friendly message: list each item with its estimated calories, "
     "then give a running total of calories and macros (protein/carbs/fat) "
     "for everything combined. Keep it short, plain text with a couple of "
     "emojis, no markdown - ready to send exactly as you write it."
